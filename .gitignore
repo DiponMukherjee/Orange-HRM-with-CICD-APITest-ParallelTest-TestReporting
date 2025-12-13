@@ -1,0 +1,6 @@
+venv/
+Test Scenarios.txt
+.idea/
+.pytest_cache/
+__pycache__/
+

@@ -1,0 +1,140 @@
+name: Parallel Testing and Reporting
+
+on:
+  push:
+
+jobs:
+  Build:
+    runs-on: macos-latest
+    steps:
+      - name: Build Job
+        run: echo "Build is done"
+
+  UI-TEST:
+    needs: Build
+
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        browser: [chromium, firefox, webkit]
+        python-version: [3.13]
+
+        exclude:
+          - os: windows-latest
+            browser: webkit
+
+        include:
+          - os: ubuntu-latest
+            browser: chromium
+            python-version: "3.12"
+            special: "True"
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      ARTIFACT_DIR: test-artifacts/${{ matrix.os }}-${{ matrix.browser }}-py${{ matrix.python-version }}
+      ALLURE_RESULTS: allure-results-${{ matrix.os }}-${{ matrix.browser }}-py${{ matrix.python-version }}
+      PW_ARTIFACTS: playwright-artifacts/${{ matrix.os }}-${{ matrix.browser }}-py${{ matrix.python-version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install allure-pytest
+          playwright install
+          playwright install-deps
+
+      - name: Install Allure CLI (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          wget https://github.com/allure-framework/allure2/releases/download/2.29.0/allure-2.29.0.zip
+          sudo apt-get update
+          sudo apt-get install unzip -y
+          unzip allure-2.29.0.zip -d /opt/allure
+          sudo ln -s /opt/allure/allure-2.29.0/bin/allure /usr/bin/allure
+          allure --version
+
+      - name: Install Allure CLI (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest `
+            -Uri https://github.com/allure-framework/allure2/releases/download/2.29.0/allure-2.29.0.zip `
+            -OutFile allure.zip
+
+          Expand-Archive allure.zip -DestinationPath C:\allure
+
+          echo "C:\allure\allure-2.29.0\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      
+      
+
+      - name: Run UI tests (Linux/macOS)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p "$ARTIFACT_DIR"
+          pytest \
+            --browser ${{ matrix.browser }} \
+            --tracing=on \
+            --screenshot=on \
+            --video=on \
+            --output "$PW_ARTIFACTS" \
+            --junitxml="$ARTIFACT_DIR/junit.xml" \
+            --html="$ARTIFACT_DIR/report.html" \
+            --self-contained-html \
+            --alluredir="$ALLURE_RESULTS"
+
+      - name: Run UI tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:ARTIFACT_DIR
+          New-Item -ItemType Directory -Force -Path $env:ALLURE_RESULTS
+          New-Item -ItemType Directory -Force -Path $env:PW_ARTIFACTS
+          
+          pytest `
+            --browser ${{ matrix.browser }} `
+            --tracing=on `
+            --screenshot=on `
+            --video=on `
+            --output "$env:PW_ARTIFACTS" `
+            --junitxml="$env:ARTIFACT_DIR\junit.xml" `
+            --html="$env:ARTIFACT_DIR\report.html" `
+            --self-contained-html `
+            --alluredir="$env:ALLURE_RESULTS"
+
+
+      - name: Generate Allure HTML report
+        if: runner.os == 'Linux'
+        run: |
+          allure generate "$ALLURE_RESULTS" -o "$ARTIFACT_DIR/allure-report" --clean
+
+      - name: Generate Allure HTML report (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          allure generate $env:ALLURE_RESULTS -o "$env:ARTIFACT_DIR\allure-report" --clean
+
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: |
+            UI-TEST-${{ matrix.os }}-${{ matrix.browser }}-py${{ matrix.python-version }}
+          path: |
+            ${{ env.ARTIFACT_DIR }}
+            ${{ env.ALLURE_RESULTS }}
+            ${{ env.PW_ARTIFACTS }}
