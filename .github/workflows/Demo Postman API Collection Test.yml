@@ -3,7 +3,7 @@ name: Automated API test using Postman CLI
 on: push
 
 jobs:
-  automated-api-tests:
+  Demo_POSTMAN_API_TEST:
 
     runs-on: macos-latest
     environment: API
