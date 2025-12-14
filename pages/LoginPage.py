@@ -53,3 +53,4 @@ class LoginPage:
     def verify_empty_cred_error_texts(self):
         expect(self.empty_cred_username_text).to_contain_text("Required")
         expect(self.empty_cred_password_text).to_contain_text("Required")
+
